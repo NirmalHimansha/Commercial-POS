@@ -12,7 +12,7 @@ model User {
   email        String    @unique
   passwordHash String
   name         String
-  role         UserRole  @default(CASHIER)
+  role         String    @default("CASHIER")
   pin          String?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
@@ -21,23 +21,23 @@ model User {
 }
 
 model Product {
-  id           Int        @id @default(autoincrement())
+  id           Int       @id @default(autoincrement())
   name         String
-  sku          String     @unique
+  sku          String    @unique
   costPrice    Float
   sellingPrice Float
-  taxRate      Float      @default(0.0)
-  reorderLevel Int        @default(10)
-  isActive     Boolean    @default(true)
-  category     Category?  @relation(fields: [categoryId], references: [id])
+  taxRate      Float     @default(0.0)
+  reorderLevel Int       @default(10)
+  isActive     Boolean   @default(true)
+  category     Category? @relation(fields: [categoryId], references: [id])
   categoryId   Int?
   brand        String?
   unit         String?
   image        String?
   barcode      String?
   description  String?
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
   @@index([sku])
   @@index([barcode])
@@ -60,6 +60,7 @@ model Supplier {
   email        String?
   phone        String?
   address      String?
+  purchases    Purchase[] @relation("SupplierPurchases")
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 
@@ -81,23 +82,22 @@ model Customer {
 }
 
 model Invoice {
-  id           Int          @id @default(autoincrement())
-  invoiceNumber String      @unique
-  status       InvoiceStatus @default(DRAFT)
-  customerId   Int?
-  userId       Int
-  items        InvoiceItem[]
-  total        Float       @default(0)
-  taxableTotal Float       @default(0)
-  taxTotal     Float       @default(0)
-  discount     Float       @default(0)
-  paymentMethod PaymentMethod @default(CASH)
-  paymentStatus PaymentStatus @default(PENDING)
-  changeAmount Float       @default(0)
-  paidAt       DateTime?
-  notes        String?
-  createdAt    DateTime     @default(now())
-  updatedAt    DateTime     @updatedAt
+  id            Int          @id @default(autoincrement())
+  invoiceNumber String       @unique
+  status        String       @default("DRAFT")
+  userId        Int
+  items         InvoiceItem[] @relation("InvoiceInvoiceItems")
+  total         Float        @default(0)
+  taxableTotal  Float        @default(0)
+  taxTotal      Float        @default(0)
+  discount      Float        @default(0)
+  paymentMethod String       @default("CASH")
+  paymentStatus String       @default("PENDING")
+  changeAmount  Float        @default(0)
+  paidAt        DateTime?
+  notes         String?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
 
   @@index([invoiceNumber])
   @@index([status])
@@ -105,44 +105,47 @@ model Invoice {
 }
 
 model InvoiceItem {
-  id           Int      @id @default(autoincrement())
-  invoiceId    Int
-  productId    Int
-  quantity     Float
-  unitPrice    Float
-  discount     Float    @default(0)
-  taxRate      Float    @default(0)
-  total        Float
-  createdAt    DateTime @default(now())
+  id         Int      @id @default(autoincrement())
+  invoiceId  Int
+  invoice    Invoice  @relation("InvoiceInvoiceItems", fields: [invoiceId], references: [id], onDelete: Cascade)
+  productId  Int
+  quantity   Float
+  unitPrice  Float
+  discount   Float    @default(0)
+  taxRate    Float    @default(0)
+  total      Float
+  createdAt  DateTime @default(now())
 
   @@map("invoice_items")
 }
 
 model Purchase {
-  id           Int        @id @default(autoincrement())
-  supplierId   Int
+  id            Int           @id @default(autoincrement())
+  supplierId    Int
+  supplier      Supplier      @relation("SupplierPurchases", fields: [supplierId], references: [id], onDelete: Restrict)
   invoiceNumber String?
-  status       PurchaseStatus @default(PENDING)
-  items        PurchaseItem[]
-  total        Float    @default(0)
-  paidAmount   Float    @default(0)
-  notes        String?
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
+  status        String        @default("PENDING")
+  items         PurchaseItem[]  @relation("PurchasePurchaseItems")
+  total         Float         @default(0)
+  paidAmount    Float         @default(0)
+  notes         String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
 
   @@map("purchases")
 }
 
 model PurchaseItem {
-  id           Int      @id @default(autoincrement())
-  purchaseId   Int
-  productId    Int
-  quantity     Float
-  unitPrice    Float
-  total        Float
-  expiryDate   DateTime?
-  batchNumber  String?
-  createdAt    DateTime @default(now())
+  id         Int      @id @default(autoincrement())
+  purchaseId Int
+  purchase   Purchase @relation("PurchasePurchaseItems", fields: [purchaseId], references: [id], onDelete: Cascade)
+  productId  Int
+  quantity   Float
+  unitPrice  Float
+  total      Float
+  expiryDate DateTime?
+  batchNumber String?
+  createdAt  DateTime @default(now())
 
   @@map("purchase_items")
 }
@@ -158,32 +161,33 @@ model Shift {
   expectedCash Float      @default(0)
   countedCash  Float      @default(0)
   notes        String?
-  entries      ShiftEntry[]
+  entries      ShiftEntry[] @relation("ShiftEntries")
 
   @@map("shifts")
 }
 
 model ShiftEntry {
-  id           Int      @id @default(autoincrement())
-  shiftId      Int
-  type         EntryType
-  amount       Float
-  notes        String?
-  createdAt    DateTime @default(now())
+  id        Int      @id @default(autoincrement())
+  shiftId   Int
+  shift     Shift    @relation("ShiftEntries", fields: [shiftId], references: [id], onDelete: Cascade)
+  type      String
+  amount    Float
+  notes     String?
+  createdAt DateTime @default(now())
 
   @@map("shift_entries")
 }
 
 model StockMovement {
-  id           Int        @id @default(autoincrement())
-  productId    Int
-  type         MovementType
-  quantity     Float
-  referenceId  Int?       // invoiceId, purchaseId, etc.
-  referenceType String?  // "invoice", "purchase", "adjustment", "stock_take"
-  userId       Int?
-  reason       String?
-  createdAt    DateTime   @default(now())
+  id            Int        @id @default(autoincrement())
+  productId     Int
+  type          String
+  quantity      Float
+  referenceId   Int?       // invoiceId, purchaseId, etc.
+  referenceType String?    // "invoice", "purchase", "adjustment", "stock_take"
+  userId        Int?
+  reason        String?
+  createdAt     DateTime   @default(now())
 
   @@index([productId])
   @@index([type])
@@ -191,70 +195,15 @@ model StockMovement {
 }
 
 model AuditLog {
-  id           Int      @id @default(autoincrement())
-  userId       Int?
-  action       String
-  entity       String
-  entityId     Int?
-  details      String?
-  ipAddress    String?
-  userAgent    String?
-  createdAt    DateTime @default(now())
+  id        Int      @id @default(autoincrement())
+  userId    Int?
+  action    String
+  entity    String
+  entityId  Int?
+  details   String?
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
 
   @@map("audit_logs")
-}
-
-enum UserRole {
-  OWNER
-  MANAGER
-  CASHIER
-}
-
-enum InvoiceStatus {
-  DRAFT
-  PAID
-  VOIDED
-  RETURNED
-}
-
-enum PaymentMethod {
-  CASH
-  CARD
-  BANK_TRANSFER
-  MOBILE_TRANSFER
-  CREDIT
-  CASH_IN
-  CASH_OUT
-}
-
-enum PaymentStatus {
-  PENDING
-  PAID
-  PARTIAL
-}
-
-enum PurchaseStatus {
-  PENDING
-  RECEIVED
-  CANCELLED
-}
-
-enum EntryType {
-  CASH_IN
-  CASH_OUT
-}
-
-enum MovementType {
-  IN
-  OUT
-  ADJUSTMENT_IN
-  ADJUSTMENT_OUT
-}
-
-enum AdjustmentReason {
-  DAMAGE
-  EXPIRY
-  THEFT
-  COUNT_CORRECTION
-  OTHER
 }
