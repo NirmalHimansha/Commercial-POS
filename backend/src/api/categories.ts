@@ -1,25 +1,24 @@
 import { FastifyInstance } from 'fastify';
 import { prisma } from '../utils/prisma';
-import { authenticate, isManagerOrOwner, isOwner } from '../middleware/auth';
+import { ManagerOrOwner } from '../middleware/auth';
 
 export async function categoryRoutes(app: FastifyInstance) {
   // List categories
-  app.get('/categories', async (request, reply) => {
+  app.get('/categories', async () => {
     try {
       const categories = await prisma.category.findMany({
         orderBy: { name: 'asc' },
-        include: { _count: { select: { products: true } } },
       });
       return { categories };
     } catch (error) {
-      reply.status(500).send({ error: 'Failed to fetch categories' });
+      return { error: 'Failed to fetch categories' };
     }
   });
 
   // Get category
-  app.get('/categories/:id', async (request, reply) => {
+  app.get('/categories/:id', async (request) => {
     try {
-      const id = parseInt(request.params.id);
+      const id = parseInt((request.params as Record<string, string>).id);
       const category = await prisma.category.findUnique({
         where: { id },
         include: {
@@ -30,21 +29,21 @@ export async function categoryRoutes(app: FastifyInstance) {
         },
       });
       if (!category) {
-        return reply.status(404).send({ error: 'Category not found' });
+        return { error: 'Category not found' };
       }
       return category;
     } catch (error) {
-      reply.status(400).send({ error: 'Invalid category ID' });
+      return { error: 'Invalid category ID' };
     }
   });
 
   // Create category (manager+)
-  app.post('/categories', { onRequest: [authenticate, isManagerOrOwner] }, async (request, reply) => {
+  app.post('/categories', { onRequest: [ManagerOrOwner] }, async (request) => {
     try {
       const { name, description } = request.body as { name: string; description?: string };
 
       if (!name || !name.trim()) {
-        return reply.status(400).send({ error: 'Category name is required' });
+        return { error: 'Category name is required' };
       }
 
       const existing = await prisma.category.findUnique({
@@ -52,7 +51,7 @@ export async function categoryRoutes(app: FastifyInstance) {
       });
 
       if (existing) {
-        return reply.status(400).send({ error: 'Category with this name already exists' });
+        return { error: 'Category with this name already exists' };
       }
 
       const category = await prisma.category.create({
@@ -61,14 +60,14 @@ export async function categoryRoutes(app: FastifyInstance) {
 
       return category;
     } catch (error) {
-      return reply.status(400).send({ error: 'Failed to create category' });
+      return { error: 'Failed to create category' };
     }
   });
 
   // Update category (manager+)
-  app.put('/categories/:id', { onRequest: [authenticate, isManagerOrOwner] }, async (request, reply) => {
+  app.put('/categories/:id', { onRequest: [ManagerOrOwner] }, async (request) => {
     try {
-      const id = parseInt(request.params.id);
+      const id = parseInt((request.params as Record<string, string>).id);
       const { name, description } = request.body as { name?: string; description?: string };
 
       const updateData: Record<string, unknown> = {};
@@ -82,25 +81,25 @@ export async function categoryRoutes(app: FastifyInstance) {
 
       return category;
     } catch (error) {
-      return reply.status(400).send({ error: 'Failed to update category' });
+      return { error: 'Failed to update category' };
     }
   });
 
   // Delete category (manager+)
-  app.delete('/categories/:id', { onRequest: [authenticate, isManagerOrOwner] }, async (request, reply) => {
+  app.delete('/categories/:id', { onRequest: [ManagerOrOwner] }, async (request) => {
     try {
-      const id = parseInt(request.params.id);
+      const id = parseInt((request.params as Record<string, string>).id);
 
       // Check if category has products
       const productCount = await prisma.product.count({ where: { categoryId: id } });
       if (productCount > 0) {
-        return reply.status(400).send({ error: 'Cannot delete category with products' });
+        return { error: 'Cannot delete category with products' };
       }
 
       await prisma.category.delete({ where: { id } });
       return { message: 'Category deleted' };
     } catch (error) {
-      return reply.status(400).send({ error: 'Failed to delete category' });
+      return { error: 'Failed to delete category' };
     }
   });
 }

@@ -1,10 +1,11 @@
-import { FastifyInstance } from 'fastify';
+import { FastifyInstance, FastifyRequest } from 'fastify';
 import { prisma } from '../utils/prisma';
 import { authenticate } from '../middleware/auth';
+import '../middleware/auth'; // Import module augmentation
 
 export async function reportsRoutes(app: FastifyInstance) {
   // Get sales report summary
-  app.get('/reports/sales', { onRequest: [authenticate] }, async (request, reply) => {
+  app.get('/reports/sales', { onRequest: [authenticate] }, async (request: FastifyRequest, reply) => {
     try {
       const { period = 'today' } = request.query as { period?: string };
       const userId = request.user!.id;
@@ -58,7 +59,7 @@ export async function reportsRoutes(app: FastifyInstance) {
 
       for (const invoice of invoices) {
         if (invoice.status === 'PAID') {
-          totalSales += parseFloat(invoice.total);
+          totalSales += invoice.total;
           totalOrders += 1;
         }
         for (const item of invoice.items) {
@@ -85,7 +86,7 @@ export async function reportsRoutes(app: FastifyInstance) {
   });
 
   // Get inventory report
-  app.get('/reports/inventory', { onRequest: [authenticate] }, async (request, reply) => {
+  app.get('/reports/inventory', { onRequest: [authenticate] }, async (_request, reply) => {
     try {
       const products = await prisma.product.findMany({
         where: { isActive: true },
@@ -107,9 +108,9 @@ export async function reportsRoutes(app: FastifyInstance) {
         let quantity = 0;
         for (const m of movements) {
           if (m.type === 'IN' || m.type === 'ADJUSTMENT_IN') {
-            quantity += parseFloat(m.quantity.toString());
+            quantity += m.quantity as number;
           } else {
-            quantity -= parseFloat(m.quantity.toString());
+            quantity -= m.quantity as number;
           }
         }
 
@@ -126,7 +127,7 @@ export async function reportsRoutes(app: FastifyInstance) {
       let totalValue = 0;
       for (const product of products) {
         const qty = productQuantities.get(product.id) ?? 0;
-        totalValue += qty * parseFloat(product.costPrice);
+        totalValue += qty * (product.costPrice as number);
       }
 
       return {
@@ -144,7 +145,7 @@ export async function reportsRoutes(app: FastifyInstance) {
   });
 
   // Get customer outstanding
-  app.get('/reports/customers', { onRequest: [authenticate] }, async (request, reply) => {
+  app.get('/reports/customers', { onRequest: [authenticate] }, async (_request, reply) => {
     try {
       // Get all customers with outstanding invoices
       const invoices = await prisma.invoice.findMany({
@@ -170,7 +171,7 @@ export async function reportsRoutes(app: FastifyInstance) {
         name: customer.name,
         phone: customer.phone,
         email: customer.email,
-        totalOutstanding: invoices.reduce((sum, inv) => sum + parseFloat(inv.total), 0),
+        totalOutstanding: invoices.reduce((sum, inv) => sum + inv.total, 0),
         invoiceCount: invoices.length,
       }));
 
@@ -191,7 +192,7 @@ export async function reportsRoutes(app: FastifyInstance) {
   });
 
   // Get supplier payables
-  app.get('/reports/suppliers', { onRequest: [authenticate] }, async (request, reply) => {
+  app.get('/reports/suppliers', { onRequest: [authenticate] }, async (_request, reply) => {
     try {
       const suppliers = await prisma.supplier.findMany({
         orderBy: { name: 'asc' },
@@ -207,7 +208,7 @@ export async function reportsRoutes(app: FastifyInstance) {
           });
 
           const totalPayable = pendingPurchases.reduce(
-            (sum, pur) => sum + parseFloat(pur.total),
+            (sum, pur) => sum + pur.total,
             0
           );
 

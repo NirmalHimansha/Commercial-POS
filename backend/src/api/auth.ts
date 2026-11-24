@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify';
 import { AuthService } from '../services/auth.service';
 import { authenticate } from '../middleware/auth';
 import { loginSchema, setPinSchema } from '../validation/auth';
+import '../middleware/auth'; // Import module augmentation
 
 export async function authRoutes(app: FastifyInstance) {
   const authService = new AuthService(app);
@@ -42,7 +43,7 @@ export async function authRoutes(app: FastifyInstance) {
   });
 
   // Get current user info
-  app.get('/me', { onRequest: [authenticate] }, async (request, reply) => {
+  app.get('/me', { onRequest: [authenticate] }, async (request) => {
     return {
       id: request.user!.id,
       email: request.user!.email,

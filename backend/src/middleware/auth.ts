@@ -1,19 +1,28 @@
-import { FastifyRequest, FastifyReply, FastifyInstance } from 'fastify';
-import { verifyJwt } from 'fastify/jwt';
+import { FastifyRequest, FastifyReply } from 'fastify';
 import { UserRole } from '../types';
 
-export interface AuthRequest extends FastifyRequest {
-  user?: {
-    id: number;
-    email: string;
-    role: UserRole;
-  };
+// JWT payload interface
+export interface JwtPayload {
+  id: number;
+  email: string;
+  role: UserRole;
+}
+
+// Extend FastifyJWT payload type and user type
+declare module '@fastify/jwt' {
+  interface FastifyJWT {
+    payload: JwtPayload;
+  }
+
+  interface FastifyRequest {
+    user: JwtPayload;
+  }
 }
 
 /**
  * Middleware to require authentication
  */
-export async function authenticate(request: AuthRequest, reply: FastifyReply) {
+export async function authenticate(request: FastifyRequest, reply: FastifyReply) {
   try {
     const token = request.headers.authorization?.split(' ')[1];
 
@@ -21,7 +30,7 @@ export async function authenticate(request: AuthRequest, reply: FastifyReply) {
       return reply.status(401).send({ error: 'Authentication token required' });
     }
 
-    const payload = await request.jwtVerify<{ id: number; email: string; role: UserRole }>(token);
+    const payload = await request.jwtVerify<JwtPayload>();
     request.user = payload;
   } catch (error) {
     return reply.status(401).send({ error: 'Invalid or expired token' });
@@ -32,32 +41,42 @@ export async function authenticate(request: AuthRequest, reply: FastifyReply) {
  * Middleware to require specific roles
  */
 export function authorize(...roles: UserRole[]) {
-  return async (request: AuthRequest, reply: FastifyReply) => {
+  return async (request: FastifyRequest, reply: FastifyReply) => {
     await authenticate(request, reply);
 
-    if (request.user && !roles.includes(request.user.role)) {
+    if (!request.user || !roles.includes(request.user.role)) {
       return reply.status(403).send({ error: 'Insufficient permissions' });
     }
   };
 }
 
 /**
- * Role-based access constants
+ * Role-based access middleware
  */
 export const OwnerOnly = authorize(UserRole.OWNER);
 export const ManagerOrOwner = authorize(UserRole.MANAGER, UserRole.OWNER);
 export const CashierOrAbove = authorize(UserRole.CASHIER, UserRole.MANAGER, UserRole.OWNER);
 
 /**
- * Check if user has manager or owner role
+ * Alias for OwnerOnly middleware (backward compatibility)
  */
-export function isManagerOrOwner(role: UserRole): boolean {
+export const isOwner = OwnerOnly;
+
+/**
+ * Alias for ManagerOrOwner middleware (backward compatibility)
+ */
+export const isManagerOrOwner = ManagerOrOwner;
+
+/**
+ * Check if role has manager or owner privileges
+ */
+export function hasManagerOrOwnerRole(role: UserRole): boolean {
   return role === UserRole.MANAGER || role === UserRole.OWNER;
 }
 
 /**
  * Check if user is owner
  */
-export function isOwner(role: UserRole): boolean {
+export function isOwnerRole(role: UserRole): boolean {
   return role === UserRole.OWNER;
 }

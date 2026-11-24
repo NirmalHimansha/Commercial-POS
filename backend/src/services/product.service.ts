@@ -1,16 +1,12 @@
-import { FastifyInstance } from 'fastify';
 import { prisma } from '../utils/prisma';
-import { toMinorUnits, fromMinorUnits } from '../utils/currency';
 
 export class ProductService {
-  constructor(private app: FastifyInstance) {}
-
   async createProduct(data: {
     name: string;
     sku: string;
-    costPrice: string;
-    sellingPrice: string;
-    taxRate?: string;
+    costPrice: number;
+    sellingPrice: number;
+    taxRate?: number;
     reorderLevel?: number;
     categoryId?: number;
     brand?: string;
@@ -32,7 +28,7 @@ export class ProductService {
         sku: data.sku,
         costPrice: data.costPrice,
         sellingPrice: data.sellingPrice,
-        taxRate: data.taxRate || '0',
+        taxRate: data.taxRate || 0,
         reorderLevel: data.reorderLevel || 10,
         categoryId: data.categoryId,
         brand: data.brand,
@@ -91,25 +87,21 @@ export class ProductService {
 
     // Filter by reorder level if requested
     let filteredProducts = products;
+    let filteredTotal = total;
     if (params.belowReorderLevel) {
-      const allProducts = await prisma.product.findMany({
-        where,
-        include: { category: true },
-      });
+      const quantities = await Promise.all(
+        products.map(async (p) => ({
+          product: p,
+          quantity: await this.calculateAvailableQuantity(p.id),
+        }))
+      );
 
-      filteredProducts = allProducts.filter((p) => {
-        const quantity = this.calculateAvailableQuantity(p.id);
-        return quantity <= (p.reorderLevel || 10);
-      });
-
-      const filteredTotal = await prisma.product.count({
-        where: {
-          ...where,
-          ...(params.belowReorderLevel && {
-            // We need a different approach for this
-          }),
-        },
-      });
+      filteredProducts = quantities
+        .filter(({ product, quantity }) => {
+          return quantity <= (product.reorderLevel || 10);
+        })
+        .map(({ product }) => product);
+      filteredTotal = filteredProducts.length;
     }
 
     return {
@@ -117,8 +109,8 @@ export class ProductService {
       pagination: {
         page,
         limit,
-        total,
-        totalPages: Math.ceil(total / limit),
+        total: filteredTotal,
+        totalPages: Math.ceil(filteredTotal / limit),
       },
     };
   }
@@ -130,19 +122,19 @@ export class ProductService {
     });
   }
 
-  async updateProduct(id: number, data: Partial<{
-    name: string;
-    sku: string;
-    costPrice: string;
-    sellingPrice: string;
-    taxRate: string;
-    reorderLevel: number;
-    categoryId: number;
-    brand: string;
-    unit: string;
-    barcode: string;
-    isActive: boolean;
-  }>) {
+  async updateProduct(id: number, data: {
+    name?: string;
+    sku?: string;
+    costPrice?: number;
+    sellingPrice?: number;
+    taxRate?: number;
+    reorderLevel?: number;
+    categoryId?: number;
+    brand?: string;
+    unit?: string;
+    barcode?: string;
+    isActive?: boolean;
+  }) {
     return await prisma.product.update({
       where: { id },
       data,
@@ -160,7 +152,7 @@ export class ProductService {
     productIds: number[];
     field: 'costPrice' | 'sellingPrice';
     operation: 'percentage' | 'fixed' | 'absolute';
-    value: string;
+    value: number;
   }) {
     const results = [];
 
@@ -168,18 +160,16 @@ export class ProductService {
       const product = await prisma.product.findUnique({ where: { id } });
       if (!product) continue;
 
-      let newValue: string;
-      const currentValue = product[params.field];
+      let newValue: number;
+      const currentValue = product[params.field] || 0;
 
       if (params.operation === 'percentage') {
-        const pct = parseFloat(params.value);
-        const current = parseFloat(currentValue);
+        const pct = params.value;
         const multiplier = 1 + (pct / 100);
-        newValue = (current * multiplier).toString();
+        newValue = currentValue * multiplier;
       } else if (params.operation === 'fixed') {
-        const current = parseFloat(currentValue);
-        const delta = parseFloat(params.value);
-        newValue = (current + delta).toString();
+        const delta = params.value;
+        newValue = currentValue + delta;
       } else {
         newValue = params.value;
       }
@@ -201,15 +191,18 @@ export class ProductService {
       include: { category: true },
     });
 
-    return products
-      .map((product) => {
-        const quantity = this.calculateAvailableQuantity(product.id);
+    const results = await Promise.all(
+      products.map(async (product) => {
+        const quantity = await this.calculateAvailableQuantity(product.id);
         return {
           ...product,
           currentQuantity: quantity,
           isLowStock: quantity <= (product.reorderLevel || 10),
         };
       })
+    );
+
+    return results
       .filter((p) => p.isLowStock)
       .sort((a, b) => a.currentQuantity - b.currentQuantity);
   }
@@ -222,9 +215,9 @@ export class ProductService {
     let quantity = 0;
     for (const m of movements) {
       if (m.type === 'IN' || m.type === 'ADJUSTMENT_IN') {
-        quantity += parseFloat(m.quantity.toString());
+        quantity += Number(m.quantity);
       } else {
-        quantity -= parseFloat(m.quantity.toString());
+        quantity -= Number(m.quantity);
       }
     }
 

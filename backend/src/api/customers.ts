@@ -1,10 +1,10 @@
 import { FastifyInstance } from 'fastify';
 import { prisma } from '../utils/prisma';
-import { authenticate, isManagerOrOwner, isOwner } from '../middleware/auth';
+import { ManagerOrOwner, OwnerOnly } from '../middleware/auth';
 
 export async function customerRoutes(app: FastifyInstance) {
   // List customers
-  app.get('/customers', { onRequest: [authenticate] }, async (request, reply) => {
+  app.get('/customers', async (request) => {
     try {
       const { search, page = 1, limit = 50 } = request.query as {
         search?: string;
@@ -40,47 +40,41 @@ export async function customerRoutes(app: FastifyInstance) {
         },
       };
     } catch (error) {
-      reply.status(500).send({ error: 'Failed to fetch customers' });
+      return { error: 'Failed to fetch customers' };
     }
   });
 
   // Get customer
-  app.get('/customers/:id', { onRequest: [authenticate] }, async (request, reply) => {
+  app.get('/customers/:id', async (request) => {
     try {
-      const id = parseInt(request.params.id);
+      const id = parseInt((request.params as Record<string, string>).id);
       const customer = await prisma.customer.findUnique({
         where: { id },
-        include: {
-          invoices: {
-            orderBy: { createdAt: 'desc' },
-            take: 10,
-          },
-        },
       });
 
       if (!customer) {
-        return reply.status(404).send({ error: 'Customer not found' });
+        return { error: 'Customer not found' };
       }
 
       return customer;
     } catch (error) {
-      reply.status(400).send({ error: 'Invalid customer ID' });
+      return { error: 'Invalid customer ID' };
     }
   });
 
   // Create customer
-  app.post('/customers', { onRequest: [authenticate, isManagerOrOwner] }, async (request, reply) => {
+  app.post('/customers', { onRequest: [ManagerOrOwner] }, async (request) => {
     try {
       const { name, phone, email, address, creditLimit } = request.body as {
         name: string;
         phone?: string;
         email?: string;
         address?: string;
-        creditLimit?: string;
+        creditLimit?: number;
       };
 
       if (!name || !name.trim()) {
-        return reply.status(400).send({ error: 'Customer name is required' });
+        return { error: 'Customer name is required' };
       }
 
       const customer = await prisma.customer.create({
@@ -89,26 +83,26 @@ export async function customerRoutes(app: FastifyInstance) {
           phone,
           email,
           address,
-          creditLimit: creditLimit || '0',
+          creditLimit: creditLimit ?? 0,
         },
       });
 
       return customer;
     } catch (error) {
-      reply.status(400).send({ error: 'Failed to create customer' });
+      return { error: 'Failed to create customer' };
     }
   });
 
   // Update customer
-  app.put('/customers/:id', { onRequest: [authenticate, isManagerOrOwner] }, async (request, reply) => {
+  app.put('/customers/:id', { onRequest: [ManagerOrOwner] }, async (request) => {
     try {
-      const id = parseInt(request.params.id);
+      const id = parseInt((request.params as Record<string, string>).id);
       const { name, phone, email, address, creditLimit } = request.body as {
         name?: string;
         phone?: string;
         email?: string;
         address?: string;
-        creditLimit?: string;
+        creditLimit?: number;
       };
 
       const updateData: Record<string, unknown> = {};
@@ -125,25 +119,25 @@ export async function customerRoutes(app: FastifyInstance) {
 
       return customer;
     } catch (error) {
-      reply.status(400).send({ error: 'Failed to update customer' });
+      return { error: 'Failed to update customer' };
     }
   });
 
   // Delete customer (owner only)
-  app.delete('/customers/:id', { onRequest: [authenticate, isOwner] }, async (request, reply) => {
+  app.delete('/customers/:id', { onRequest: [OwnerOnly] }, async (request) => {
     try {
-      const id = parseInt(request.params.id);
+      const id = parseInt((request.params as Record<string, string>).id);
 
       // Check if customer has invoices
       const invoiceCount = await prisma.invoice.count({ where: { customerId: id } });
       if (invoiceCount > 0) {
-        return reply.status(400).send({ error: 'Cannot delete customer with invoices' });
+        return { error: 'Cannot delete customer with invoices' };
       }
 
       await prisma.customer.delete({ where: { id } });
       return { message: 'Customer deleted' };
     } catch (error) {
-      reply.status(400).send({ error: 'Failed to delete customer' });
+      return { error: 'Failed to delete customer' };
     }
   });
 }

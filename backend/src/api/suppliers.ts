@@ -1,25 +1,24 @@
 import { FastifyInstance } from 'fastify';
 import { prisma } from '../utils/prisma';
-import { authenticate, isManagerOrOwner, isOwner } from '../middleware/auth';
+import { authenticate, ManagerOrOwner, OwnerOnly } from '../middleware/auth';
 
 export async function supplierRoutes(app: FastifyInstance) {
   // List suppliers
-  app.get('/suppliers', { onRequest: [authenticate] }, async (request, reply) => {
+  app.get('/suppliers', async () => {
     try {
       const suppliers = await prisma.supplier.findMany({
         orderBy: { name: 'asc' },
-        include: { _count: { select: { purchases: true } } },
       });
       return { suppliers };
     } catch (error) {
-      reply.status(500).send({ error: 'Failed to fetch suppliers' });
+      return { error: 'Failed to fetch suppliers' };
     }
   });
 
   // Get supplier
-  app.get('/suppliers/:id', { onRequest: [authenticate] }, async (request, reply) => {
+  app.get('/suppliers/:id', async (request) => {
     try {
-      const id = parseInt(request.params.id);
+      const id = parseInt((request.params as Record<string, string>).id);
       const supplier = await prisma.supplier.findUnique({
         where: { id },
         include: {
@@ -29,16 +28,16 @@ export async function supplierRoutes(app: FastifyInstance) {
         },
       });
       if (!supplier) {
-        return reply.status(404).send({ error: 'Supplier not found' });
+        return { error: 'Supplier not found' };
       }
       return supplier;
     } catch (error) {
-      reply.status(400).send({ error: 'Invalid supplier ID' });
+      return { error: 'Invalid supplier ID' };
     }
   });
 
   // Create supplier
-  app.post('/suppliers', { onRequest: [authenticate, isManagerOrOwner] }, async (request, reply) => {
+  app.post('/suppliers', { onRequest: [ManagerOrOwner] }, async (request) => {
     try {
       const { name, contact, email, phone, address } = request.body as {
         name: string;
@@ -49,7 +48,7 @@ export async function supplierRoutes(app: FastifyInstance) {
       };
 
       if (!name || !name.trim()) {
-        return reply.status(400).send({ error: 'Supplier name is required' });
+        return { error: 'Supplier name is required' };
       }
 
       const supplier = await prisma.supplier.create({
@@ -64,14 +63,14 @@ export async function supplierRoutes(app: FastifyInstance) {
 
       return supplier;
     } catch (error) {
-      return reply.status(400).send({ error: 'Failed to create supplier' });
+      return { error: 'Failed to create supplier' };
     }
   });
 
   // Update supplier
-  app.put('/suppliers/:id', { onRequest: [authenticate, isManagerOrOwner] }, async (request, reply) => {
+  app.put('/suppliers/:id', { onRequest: [ManagerOrOwner] }, async (request) => {
     try {
-      const id = parseInt(request.params.id);
+      const id = parseInt((request.params as Record<string, string>).id);
       const { name, contact, email, phone, address } = request.body as {
         name?: string;
         contact?: string;
@@ -94,30 +93,30 @@ export async function supplierRoutes(app: FastifyInstance) {
 
       return supplier;
     } catch (error) {
-      return reply.status(400).send({ error: 'Failed to update supplier' });
+      return { error: 'Failed to update supplier' };
     }
   });
 
   // Delete supplier (owner only)
-  app.delete('/suppliers/:id', { onRequest: [authenticate, isOwner] }, async (request, reply) => {
+  app.delete('/suppliers/:id', { onRequest: [OwnerOnly] }, async (request) => {
     try {
-      const id = parseInt(request.params.id);
+      const id = parseInt((request.params as Record<string, string>).id);
 
       // Check if supplier has purchases
       const purchaseCount = await prisma.purchase.count({ where: { supplierId: id } });
       if (purchaseCount > 0) {
-        return reply.status(400).send({ error: 'Cannot delete supplier with purchases' });
+        return { error: 'Cannot delete supplier with purchases' };
       }
 
       await prisma.supplier.delete({ where: { id } });
       return { message: 'Supplier deleted' };
     } catch (error) {
-      return reply.status(400).send({ error: 'Failed to delete supplier' });
+      return { error: 'Failed to delete supplier' };
     }
   });
 
   // Get suggested purchase list for low stock items
-  app.get('/suppliers/suggested-purchases', { onRequest: [authenticate] }, async (request, reply) => {
+  app.get('/suppliers/suggested-purchases', { onRequest: [authenticate] }, async () => {
     try {
       // Get all products with their current stock
       const products = await prisma.product.findMany({
@@ -125,7 +124,7 @@ export async function supplierRoutes(app: FastifyInstance) {
       });
 
       // Get stock movements for each product
-      const suggestedPurchases: Record<number, { name: string; quantity: number; totalCost: number }>[] = [];
+      const suggestedPurchases: { productId: number; name: string; quantity: number; totalCost: number }[] = [];
 
       for (const product of products) {
         // Calculate current stock
@@ -136,16 +135,17 @@ export async function supplierRoutes(app: FastifyInstance) {
         let quantity = 0;
         for (const m of movements) {
           if (m.type === 'IN' || m.type === 'ADJUSTMENT_IN') {
-            quantity += parseFloat(m.quantity.toString());
+            quantity += Number(m.quantity);
           } else {
-            quantity -= parseFloat(m.quantity.toString());
+            quantity -= Number(m.quantity);
           }
         }
 
         // If below reorder level
-        if (quantity <= (product.reorderLevel || 10)) {
-          const needed = (product.reorderLevel || 10) - quantity;
-          const totalCost = needed * parseFloat(product.costPrice);
+        const reorderLevel = product.reorderLevel || 10;
+        if (quantity <= reorderLevel) {
+          const needed = reorderLevel - quantity;
+          const totalCost = needed * Number(product.costPrice);
 
           suggestedPurchases.push({
             productId: product.id,
@@ -165,7 +165,7 @@ export async function supplierRoutes(app: FastifyInstance) {
         totalCost: suggestedPurchases.reduce((sum, item) => sum + item.totalCost, 0),
       };
     } catch (error) {
-      return reply.status(500).send({ error: 'Failed to generate suggested purchases' });
+      return { error: 'Failed to generate suggested purchases' };
     }
   });
 }

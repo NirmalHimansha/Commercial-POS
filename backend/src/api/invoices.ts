@@ -1,13 +1,14 @@
 import { FastifyInstance } from 'fastify';
 import { prisma } from '../utils/prisma';
-import { authenticate, isManagerOrOwner, isOwner } from '../middleware/auth';
+import { authenticate, ManagerOrOwner, OwnerOnly } from '../middleware/auth';
 import {
   createInvoiceSchema,
   returnInvoiceSchema,
   voidInvoiceSchema,
   processPaymentSchema,
 } from '../validation/invoices';
-import { InvoiceStatus, PaymentMethod, MovementType } from '@prisma/client';
+import { MovementType } from '../types';
+import '../middleware/auth'; // Import module augmentation
 
 let invoiceCounter = 1000;
 
@@ -21,41 +22,41 @@ function generateInvoiceNumber(): string {
 
 export async function invoiceRoutes(app: FastifyInstance) {
   // Create invoice (authenticated)
-  app.post('/invoices', { onRequest: [authenticate] }, async (request, reply) => {
+  app.post('/invoices', { onRequest: [authenticate] }, async (request) => {
     try {
       const data = createInvoiceSchema.parse(await request.body);
       const userId = request.user!.id;
 
       // Calculate totals
-      let subtotal = 0n;
-      let taxTotal = 0n;
+      let subtotal = 0;
+      let taxTotal = 0;
 
       const items = [];
       for (const itemData of data.items) {
         const product = await prisma.product.findUnique({ where: { id: itemData.productId } });
         if (!product) {
-          return reply.status(400).send({ error: `Product not found: ${itemData.productId}` });
+          return { error: `Product not found: ${itemData.productId}` };
         }
 
-        const quantity = parseFloat(itemData.quantity);
-        const unitPrice = parseFloat(product.sellingPrice);
-        const discountPercent = parseFloat(itemData.discount || '0');
-        const taxRate = parseFloat(product.taxRate);
+        const quantity = itemData.quantity;
+        const unitPrice = product.sellingPrice;
+        const discountPercent = itemData.discount || 0;
+        const taxRate = product.taxRate;
 
         const lineTotal = unitPrice * quantity * (1 - discountPercent / 100);
         const lineTax = lineTotal * (taxRate / 100);
 
         items.push({
           productId: itemData.productId,
-          quantity: quantity.toString(),
-          unitPrice: unitPrice.toString(),
-          discount: (discountPercent / 100).toString(),
-          taxRate: taxRate.toString(),
-          total: lineTotal.toFixed(2),
+          quantity: quantity,
+          unitPrice: unitPrice,
+          discount: discountPercent / 100,
+          taxRate: taxRate,
+          total: lineTotal,
         });
 
-        subtotal += BigInt(Math.round(lineTotal * 100));
-        taxTotal += BigInt(Math.round(lineTax * 100));
+        subtotal += lineTotal;
+        taxTotal += lineTax;
       }
 
       // Deduct stock
@@ -82,43 +83,42 @@ export async function invoiceRoutes(app: FastifyInstance) {
           invoiceNumber,
           customerId: data.customerId,
           userId,
-          status: InvoiceStatus.DRAFT,
-          paymentMethod: data.paymentMethod as PaymentMethod,
-          total: (Number(subtotal) / 100).toFixed(2),
-          taxableTotal: (Number(subtotal) / 100).toFixed(2),
-          taxTotal: (Number(taxTotal) / 100).toFixed(2),
+          status: 'DRAFT',
+          paymentMethod: data.paymentMethod,
+          total: subtotal,
+          taxableTotal: subtotal,
+          taxTotal: taxTotal,
           items: { create: items },
         },
-        include: { items: true, customer: true },
       });
 
       return invoice;
     } catch (error) {
-      return reply.status(400).send({ error: error instanceof Error ? error.message : 'Failed to create invoice' });
+      return { error: error instanceof Error ? error.message : 'Failed to create invoice' };
     }
   });
 
   // Get invoice
-  app.get('/invoices/:id', { onRequest: [authenticate] }, async (request, reply) => {
+  app.get('/invoices/:id', { onRequest: [authenticate] }, async (request) => {
     try {
-      const id = parseInt(request.params.id);
+      const id = parseInt((request.params as Record<string, string>).id);
       const invoice = await prisma.invoice.findUnique({
         where: { id },
-        include: { items: true, customer: true, user: true },
+        include: { items: true },
       });
 
       if (!invoice) {
-        return reply.status(404).send({ error: 'Invoice not found' });
+        return { error: 'Invoice not found' };
       }
 
       return invoice;
     } catch (error) {
-      return reply.status(400).send({ error: 'Invalid invoice ID' });
+      return { error: 'Invalid invoice ID' };
     }
   });
 
   // List invoices
-  app.get('/invoices', { onRequest: [authenticate] }, async (request, reply) => {
+  app.get('/invoices', { onRequest: [authenticate] }, async (request) => {
     try {
       const userId = request.user!.id;
       const role = request.user!.role;
@@ -130,50 +130,52 @@ export async function invoiceRoutes(app: FastifyInstance) {
       const invoices = await prisma.invoice.findMany({
         where,
         orderBy: { createdAt: 'desc' },
-        include: { items: true, customer: true },
+        include: { items: true },
         take: 50,
       });
 
       return { invoices };
     } catch (error) {
-      return reply.status(500).send({ error: 'Failed to fetch invoices' });
+      return { error: 'Failed to fetch invoices' };
     }
   });
 
   // Process payment
-  app.post('/invoices/:id/pay', { onRequest: [authenticate] }, async (request, reply) => {
+  app.post('/invoices/:id/pay', { onRequest: [authenticate] }, async (request) => {
     try {
-      const invoiceId = parseInt(request.params.id);
+      const invoiceId = parseInt((request.params as Record<string, string>).id);
+      const body = await request.body as { amount?: number; method: string };
       const { amount, method } = processPaymentSchema.parse({
-        ...(await request.body),
+        ...body,
         invoiceId,
       });
 
       const invoice = await prisma.invoice.findUnique({ where: { id: invoiceId } });
       if (!invoice) {
-        return reply.status(404).send({ error: 'Invoice not found' });
+        return { error: 'Invoice not found' };
       }
 
       if (invoice.paymentStatus === 'PAID') {
-        return reply.status(400).send({ error: 'Invoice already paid' });
+        return { error: 'Invoice already paid' };
       }
 
-      const paymentAmount = parseFloat(amount || invoice.total);
-      const totalAmount = parseFloat(invoice.total);
+      const paymentAmount = amount || invoice.total;
+      const totalAmount = invoice.total;
       const changeAmount = Math.max(0, paymentAmount - totalAmount);
 
       const updateData: Record<string, unknown> = {};
 
       if (paymentAmount >= totalAmount) {
-        updateData.status = InvoiceStatus.PAID;
+        updateData.status = 'PAID';
         updateData.paymentStatus = 'PAID';
-        updateData.changeAmount = changeAmount.toFixed(2);
+        updateData.changeAmount = changeAmount;
       } else {
         updateData.paymentStatus = 'PARTIAL';
-        updateData.total = (totalAmount - paymentAmount).toFixed(2);
+        updateData.total = totalAmount - paymentAmount;
       }
 
-      updateData.paymentMethod = method as PaymentMethod;
+      updateData.paymentMethod = method;
+      updateData.paidAt = new Date();
 
       await prisma.invoice.update({
         where: { id: invoiceId },
@@ -188,21 +190,22 @@ export async function invoiceRoutes(app: FastifyInstance) {
 
       const updatedInvoice = await prisma.invoice.findUnique({
         where: { id: invoiceId },
-        include: { items: true, customer: true },
+        include: { items: true },
       });
 
       return updatedInvoice;
     } catch (error) {
-      return reply.status(400).send({ error: error instanceof Error ? error.message : 'Failed to process payment' });
+      return { error: error instanceof Error ? error.message : 'Failed to process payment' };
     }
   });
 
   // Return invoice
-  app.post('/invoices/:id/return', { onRequest: [authenticate, isManagerOrOwner] }, async (request, reply) => {
+  app.post('/invoices/:id/return', { onRequest: [ManagerOrOwner] }, async (request) => {
     try {
-      const invoiceId = parseInt(request.params.id);
+      const invoiceId = parseInt((request.params as Record<string, string>).id);
+      const body = await request.body as { items?: { itemId: number; quantity: number; reason?: string }[] };
       const items = returnInvoiceSchema.parse({
-        ...(await request.body),
+        ...body,
         invoiceId,
       }).items;
 
@@ -210,16 +213,16 @@ export async function invoiceRoutes(app: FastifyInstance) {
         where: { id: invoiceId },
       });
 
-      if (!originalInvoice || originalInvoice.status === InvoiceStatus.RETURNED || originalInvoice.status === InvoiceStatus.VOIDED) {
-        return reply.status(400).send({ error: 'Invoice cannot be returned' });
+      if (!originalInvoice || originalInvoice.status === 'RETURNED' || originalInvoice.status === 'VOIDED') {
+        return { error: 'Invoice cannot be returned' };
       }
 
       // Create return invoice
       const returnInvoice = await prisma.invoice.create({
         data: {
           invoiceNumber: `RET-${originalInvoice.invoiceNumber}`,
-          status: InvoiceStatus.PAID,
-          paymentMethod: originalInvoice.paymentMethod,
+          status: 'PAID',
+          paymentMethod: originalInvoice.paymentMethod as any,
           total: originalInvoice.total,
           userId: request.user!.id,
         },
@@ -246,35 +249,37 @@ export async function invoiceRoutes(app: FastifyInstance) {
       // Mark original as returned
       await prisma.invoice.update({
         where: { id: invoiceId },
-        data: { status: InvoiceStatus.RETURNED },
+        data: { status: 'RETURNED' },
       });
 
       return returnInvoice;
     } catch (error) {
-      return reply.status(400).send({ error: error instanceof Error ? error.message : 'Failed to process return' });
+      return { error: error instanceof Error ? error.message : 'Failed to process return' };
     }
   });
 
   // Void invoice (manager+ with reason)
-  app.post('/invoices/:id/void', { onRequest: [authenticate, isManagerOrOwner] }, async (request, reply) => {
+  app.post('/invoices/:id/void', { onRequest: [ManagerOrOwner] }, async (request) => {
     try {
-      const { id, reason } = voidInvoiceSchema.parse({
-        ...(await request.body),
-        id: parseInt(request.params.id),
+      const body = await request.body as { reason?: string };
+      const { reason } = voidInvoiceSchema.parse({
+        ...body,
+        id: parseInt((request.params as Record<string, string>).id),
       });
 
+      const id = parseInt((request.params as Record<string, string>).id);
       const invoice = await prisma.invoice.findUnique({ where: { id } });
       if (!invoice) {
-        return reply.status(404).send({ error: 'Invoice not found' });
+        return { error: 'Invoice not found' };
       }
 
-      if (invoice.status === InvoiceStatus.VOIDED) {
-        return reply.status(400).send({ error: 'Invoice already voided' });
+      if (invoice.status === 'VOIDED') {
+        return { error: 'Invoice already voided' };
       }
 
       await prisma.invoice.update({
         where: { id },
-        data: { status: InvoiceStatus.VOIDED },
+        data: { status: 'VOIDED' },
       });
 
       // Return stock
@@ -295,22 +300,22 @@ export async function invoiceRoutes(app: FastifyInstance) {
 
       return { message: 'Invoice voided', reason };
     } catch (error) {
-      return reply.status(400).send({ error: error instanceof Error ? error.message : 'Failed to void invoice' });
+      return { error: error instanceof Error ? error.message : 'Failed to void invoice' };
     }
   });
 
   // Delete invoice (owner only, drafts only)
-  app.delete('/invoices/:id', { onRequest: [authenticate, isOwner] }, async (request, reply) => {
+  app.delete('/invoices/:id', { onRequest: [OwnerOnly] }, async (request) => {
     try {
-      const id = parseInt(request.params.id);
+      const id = parseInt((request.params as Record<string, string>).id);
       const invoice = await prisma.invoice.findUnique({ where: { id } });
 
       if (!invoice) {
-        return reply.status(404).send({ error: 'Invoice not found' });
+        return { error: 'Invoice not found' };
       }
 
-      if (invoice.status !== InvoiceStatus.DRAFT) {
-        return reply.status(400).send({ error: 'Only draft invoices can be deleted' });
+      if (invoice.status !== 'DRAFT') {
+        return { error: 'Only draft invoices can be deleted' };
       }
 
       // Delete items first
@@ -321,28 +326,29 @@ export async function invoiceRoutes(app: FastifyInstance) {
 
       return { message: 'Invoice deleted' };
     } catch (error) {
-      return reply.status(400).send({ error: 'Failed to delete invoice' });
+      return { error: 'Failed to delete invoice' };
     }
   });
 
   // Search invoices by number
-  app.get('/invoices/search/:number', { onRequest: [authenticate] }, async (request, reply) => {
+  app.get('/invoices/search/:number', { onRequest: [authenticate] }, async (request) => {
     try {
+      const searchNum = (request.params as Record<string, string>).number;
       const invoice = await prisma.invoice.findFirst({
         where: {
-          invoiceNumber: { contains: request.params.number, mode: 'insensitive' },
+          invoiceNumber: { contains: searchNum },
         },
         orderBy: { createdAt: 'desc' },
-        include: { items: true, customer: true },
+        include: { items: true },
       });
 
       if (!invoice) {
-        return reply.status(404).send({ error: 'Invoice not found' });
+        return { error: 'Invoice not found' };
       }
 
       return invoice;
     } catch (error) {
-      return reply.status(400).send({ error: 'Invalid search' });
+      return { error: 'Invalid search' };
     }
   });
 }

@@ -1,4 +1,4 @@
-import { PrismaClient, UserRole } from '@prisma/client';
+import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcrypt';
 
 const prisma = new PrismaClient();
@@ -15,42 +15,41 @@ async function main() {
       email: 'admin@grocery.com',
       passwordHash,
       name: 'Admin User',
-      role: UserRole.OWNER,
+      role: 'OWNER',
     },
   });
 
   console.log(`Created admin user: ${adminUser.email}`);
 
   // Create categories
-  const categories = await prisma.category.createMany({
-    data: [
-      { name: 'Fruits', description: 'Fresh fruits and seasonal produce' },
-      { name: 'Vegetables', description: 'Fresh vegetables and herbs' },
-      { name: 'Dairy', description: 'Milk, cheese, yogurt, and eggs' },
-      { name: 'Meat & Poultry', description: 'Fresh meat, poultry, and seafood' },
-      { name: 'Bakery', description: 'Bread, pastries, and baked goods' },
-      { name: 'Beverages', description: 'Soft drinks, juices, water, and tea' },
-      { name: 'Snacks', description: 'Chips, nuts, and confectionery' },
-      { name: 'Cleaning', description: 'Cleaning supplies and chemicals' },
-      { name: 'Personal Care', description: 'Soap, shampoo, and toiletries' },
-      { name: 'Frozen', description: 'Frozen foods and ice cream' },
-    ],
-    skipDuplicates: true,
-  });
-
-  console.log(`Created ${categories.count} categories`);
+  for (const cat of ['Fruits', 'Vegetables', 'Dairy', 'Meat & Poultry', 'Bakery', 'Beverages', 'Snacks', 'Cleaning', 'Personal Care', 'Frozen']) {
+    await prisma.category.upsert({
+      where: { name: cat },
+      update: {},
+      create: { name: cat },
+    });
+  }
+  const categoryCount = await prisma.category.count();
+  console.log(`Created ${categoryCount} categories`);
 
   // Create suppliers
-  const suppliers = await prisma.supplier.createMany({
-    data: [
-      { name: 'Fresh Farms Ltd', contact: 'John Smith', phone: '011-1234567', email: 'info@freshfarms.com' },
-      { name: 'Super Mart Distributors', contact: 'Jane Doe', phone: '011-2345678', email: 'sales@supermart.lk' },
-      { name: 'Island Produce', contact: 'Raj Kumar', phone: '011-3456789', email: 'contact@islandproduce.lk' },
-    ],
-    skipDuplicates: true,
+  await prisma.supplier.upsert({
+    where: { name: 'Fresh Farms Ltd' },
+    update: {},
+    create: { name: 'Fresh Farms Ltd', contact: 'John Smith', phone: '011-1234567', email: 'info@freshfarms.com' },
   });
-
-  console.log(`Created ${suppliers.count} suppliers`);
+  await prisma.supplier.upsert({
+    where: { name: 'Super Mart Distributors' },
+    update: {},
+    create: { name: 'Super Mart Distributors', contact: 'Jane Doe', phone: '011-2345678', email: 'sales@supermart.lk' },
+  });
+  await prisma.supplier.upsert({
+    where: { name: 'Island Produce' },
+    update: {},
+    create: { name: 'Island Produce', contact: 'Raj Kumar', phone: '011-3456789', email: 'contact@islandproduce.lk' },
+  });
+  const supplierCount = await prisma.supplier.count();
+  console.log(`Created ${supplierCount} suppliers`);
 
   // Create sample products (about 200 for demo)
   const products = [];
@@ -71,9 +70,9 @@ async function main() {
       name: `${fruts[i % fruts.length]} (${i + 1})`,
       sku: `FRUIT-${(i % fruts.length) + 1}`,
       barcode: `123456${i.toString().padStart(3, '0')}`,
-      costPrice: (10 + i * 0.5).toFixed(2),
-      sellingPrice: (15 + i * 0.8).toFixed(2),
-      taxRate: '0.0',
+      costPrice: parseFloat((10 + i * 0.5).toFixed(2)),
+      sellingPrice: parseFloat((15 + i * 0.8).toFixed(2)),
+      taxRate: 0.0,
       reorderLevel: 10,
       categoryId: 1,
       isActive: true,
@@ -85,9 +84,9 @@ async function main() {
       name: `${veg[i % veg.length]} (${i + 1})`,
       sku: `VEG-${(i % veg.length) + 1}`,
       barcode: `234567${i.toString().padStart(3, '0')}`,
-      costPrice: (8 + i * 0.3).toFixed(2),
-      sellingPrice: (12 + i * 0.5).toFixed(2),
-      taxRate: '0.0',
+      costPrice: parseFloat((8 + i * 0.3).toFixed(2)),
+      sellingPrice: parseFloat((12 + i * 0.5).toFixed(2)),
+      taxRate: 0.0,
       reorderLevel: 15,
       categoryId: 2,
       isActive: true,
@@ -99,9 +98,9 @@ async function main() {
       name: `${dairy[i % dairy.length]} ${i + 1}`,
       sku: `DAIRY-${(i % dairy.length) + 1}`,
       barcode: `345678${i.toString().padStart(3, '0')}`,
-      costPrice: (12 + i * 0.7).toFixed(2),
-      sellingPrice: (18 + i * 1.2).toFixed(2),
-      taxRate: '0.0',
+      costPrice: parseFloat((12 + i * 0.7).toFixed(2)),
+      sellingPrice: parseFloat((18 + i * 1.2).toFixed(2)),
+      taxRate: 0.0,
       reorderLevel: 8,
       categoryId: 3,
       isActive: true,
@@ -113,9 +112,9 @@ async function main() {
       name: `${meat[i % meat.length]} ${i + 1}`,
       sku: `MEAT-${(i % meat.length) + 1}`,
       barcode: `456789${i.toString().padStart(3, '0')}`,
-      costPrice: (15 + i * 1.5).toFixed(2),
-      sellingPrice: (25 + i * 2.0).toFixed(2),
-      taxRate: '0.0',
+      costPrice: parseFloat((15 + i * 1.5).toFixed(2)),
+      sellingPrice: parseFloat((25 + i * 2.0).toFixed(2)),
+      taxRate: 0.0,
       reorderLevel: 5,
       categoryId: 4,
       isActive: true,
@@ -127,9 +126,9 @@ async function main() {
       name: `${bakery[i % bakery.length]} ${i + 1}`,
       sku: `BAKERY-${(i % bakery.length) + 1}`,
       barcode: `567890${i.toString().padStart(3, '0')}`,
-      costPrice: (5 + i * 0.3).toFixed(2),
-      sellingPrice: (8 + i * 0.5).toFixed(2),
-      taxRate: '0.0',
+      costPrice: parseFloat((5 + i * 0.3).toFixed(2)),
+      sellingPrice: parseFloat((8 + i * 0.5).toFixed(2)),
+      taxRate: 0.0,
       reorderLevel: 15,
       categoryId: 5,
       isActive: true,
@@ -141,9 +140,9 @@ async function main() {
       name: `${beverages[i % beverages.length]} ${i + 1}`,
       sku: `BEV-${(i % beverages.length) + 1}`,
       barcode: `678901${i.toString().padStart(3, '0')}`,
-      costPrice: (2 + i * 0.1).toFixed(2),
-      sellingPrice: (3 + i * 0.15).toFixed(2),
-      taxRate: '0.0',
+      costPrice: parseFloat((2 + i * 0.1).toFixed(2)),
+      sellingPrice: parseFloat((3 + i * 0.15).toFixed(2)),
+      taxRate: 0.0,
       reorderLevel: 20,
       categoryId: 6,
       isActive: true,
@@ -155,9 +154,9 @@ async function main() {
       name: `${snacks[i % snacks.length]} ${i + 1}`,
       sku: `SNACK-${(i % snacks.length) + 1}`,
       barcode: `789012${i.toString().padStart(3, '0')}`,
-      costPrice: (3 + i * 0.2).toFixed(2),
-      sellingPrice: (5 + i * 0.3).toFixed(2),
-      taxRate: '0.0',
+      costPrice: parseFloat((3 + i * 0.2).toFixed(2)),
+      sellingPrice: parseFloat((5 + i * 0.3).toFixed(2)),
+      taxRate: 0.0,
       reorderLevel: 25,
       categoryId: 7,
       isActive: true,
@@ -169,9 +168,9 @@ async function main() {
       name: `${cleaning[i % cleaning.length]} ${i + 1}`,
       sku: `CLEAN-${(i % cleaning.length) + 1}`,
       barcode: `890123${i.toString().padStart(3, '0')}`,
-      costPrice: (10 + i * 1).toFixed(2),
-      sellingPrice: (15 + i * 1.5).toFixed(2),
-      taxRate: '0.0',
+      costPrice: parseFloat((10 + i * 1).toFixed(2)),
+      sellingPrice: parseFloat((15 + i * 1.5).toFixed(2)),
+      taxRate: 0.0,
       reorderLevel: 5,
       categoryId: 8,
       isActive: true,
@@ -183,9 +182,9 @@ async function main() {
       name: `${personal[i % personal.length]} ${i + 1}`,
       sku: `CARE-${(i % personal.length) + 1}`,
       barcode: `901234${i.toString().padStart(3, '0')}`,
-      costPrice: (8 + i * 0.8).toFixed(2),
-      sellingPrice: (12 + i * 1.2).toFixed(2),
-      taxRate: '0.0',
+      costPrice: parseFloat((8 + i * 0.8).toFixed(2)),
+      sellingPrice: parseFloat((12 + i * 1.2).toFixed(2)),
+      taxRate: 0.0,
       reorderLevel: 10,
       categoryId: 9,
       isActive: true,
@@ -197,9 +196,9 @@ async function main() {
       name: `${frozen[i % frozen.length]} ${i + 1}`,
       sku: `FROZ-${(i % frozen.length) + 1}`,
       barcode: `012345${i.toString().padStart(3, '0')}`,
-      costPrice: (12 + i * 1).toFixed(2),
-      sellingPrice: (18 + i * 1.5).toFixed(2),
-      taxRate: '0.0',
+      costPrice: parseFloat((12 + i * 1).toFixed(2)),
+      sellingPrice: parseFloat((18 + i * 1.5).toFixed(2)),
+      taxRate: 0.0,
       reorderLevel: 8,
       categoryId: 10,
       isActive: true,
@@ -216,50 +215,63 @@ async function main() {
   console.log(`Created ${products.length} products`);
 
   // Create sample customers
-  const customers = await prisma.customer.createMany({
-    data: [
-      { name: 'John Perera', phone: '077-1234567', address: '123 Main Street, Colombo' },
-      { name: 'Jane Silva', phone: '077-2345678', address: '45 Hill Road, Kandy' },
-      { name: 'Raj Mendis', phone: '077-3456789', address: '78 Beach Ave, Galle' },
-      { name: 'Kamal Weerasinghe', phone: '077-4567890', address: '22 Park Street, Negombo' },
-      { name: 'Suja Wijesinghe', phone: '077-5678901', address: '9 Market Lane, Jaffna' },
-    ],
-    skipDuplicates: true,
-  });
+  const customerData = [
+    { name: 'John Perera', phone: '077-1234567', address: '123 Main Street, Colombo' },
+    { name: 'Jane Silva', phone: '077-2345678', address: '45 Hill Road, Kandy' },
+    { name: 'Raj Mendis', phone: '077-3456789', address: '78 Beach Ave, Galle' },
+    { name: 'Kamal Weerasinghe', phone: '077-4567890', address: '22 Park Street, Negombo' },
+    { name: 'Suja Wijesinghe', phone: '077-5678901', address: '9 Market Lane, Jaffna' },
+  ];
 
-  console.log(`Created ${customers.count} customers`);
+  for (const cust of customerData) {
+    await prisma.customer.upsert({
+      where: { phone: cust.phone },
+      update: {},
+      create: cust,
+    });
+  }
+  const customerCount = await prisma.customer.count();
+  console.log(`Created ${customerCount} customers`);
 
   // Create sample cashiers
   const managerPasswordHash = await bcrypt.hash('manager123', 12);
   const cashierPasswordHash = await bcrypt.hash('cashier123', 12);
+  const managerPinHash = await bcrypt.hash('1234', 12);
+  const cashierPinHash = await bcrypt.hash('1111', 12);
 
-  const manager = await prisma.user.create({
-    data: {
+  await prisma.user.upsert({
+    where: { email: 'manager@grocery.com' },
+    update: {},
+    create: {
       email: 'manager@grocery.com',
       passwordHash: managerPasswordHash,
       name: 'Shop Manager',
-      role: UserRole.MANAGER,
-      pin: '1234',
+      role: 'MANAGER',
+      pin: managerPinHash, // Store hashed PIN
     },
   });
 
-  const cashier1 = await prisma.user.create({
-    data: {
+  await prisma.user.upsert({
+    where: { email: 'cashier1@grocery.com' },
+    update: {},
+    create: {
       email: 'cashier1@grocery.com',
       passwordHash: cashierPasswordHash,
       name: 'Cashier One',
-      role: UserRole.CASHIER,
-      pin: '1111',
+      role: 'CASHIER',
+      pin: cashierPinHash, // Store hashed PIN
     },
   });
 
-  const cashier2 = await prisma.user.create({
-    data: {
+  await prisma.user.upsert({
+    where: { email: 'cashier2@grocery.com' },
+    update: {},
+    create: {
       email: 'cashier2@grocery.com',
       passwordHash: cashierPasswordHash,
       name: 'Cashier Two',
-      role: UserRole.CASHIER,
-      pin: '2222',
+      role: 'CASHIER',
+      pin: cashierPinHash, // Store hashed PIN
     },
   });
 
@@ -272,7 +284,7 @@ async function main() {
     stockMovements.push({
       productId: i,
       type: 'IN',
-      quantity: (50 + i).toString(),
+      quantity: (50 + i),
       referenceType: 'initial',
       reason: 'Initial stock',
     });
