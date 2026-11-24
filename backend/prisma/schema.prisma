@@ -1,0 +1,260 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           Int       @id @default(autoincrement())
+  email        String    @unique
+  passwordHash String
+  name         String
+  role         UserRole  @default(CASHIER)
+  pin          String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@map("users")
+}
+
+model Product {
+  id           Int        @id @default(autoincrement())
+  name         String
+  sku          String     @unique
+  costPrice    Float
+  sellingPrice Float
+  taxRate      Float      @default(0.0)
+  reorderLevel Int        @default(10)
+  isActive     Boolean    @default(true)
+  category     Category?  @relation(fields: [categoryId], references: [id])
+  categoryId   Int?
+  brand        String?
+  unit         String?
+  image        String?
+  barcode      String?
+  description  String?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@index([sku])
+  @@index([barcode])
+  @@map("products")
+}
+
+model Category {
+  id          Int       @id @default(autoincrement())
+  name        String    @unique
+  description String?
+  products    Product[]
+
+  @@map("categories")
+}
+
+model Supplier {
+  id           Int        @id @default(autoincrement())
+  name         String
+  contact      String?
+  email        String?
+  phone        String?
+  address      String?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@map("suppliers")
+}
+
+model Customer {
+  id          Int       @id @default(autoincrement())
+  name        String
+  phone       String?   @unique
+  email       String?
+  address     String?
+  creditLimit Float     @default(0)
+  loyaltyPoints Int     @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@map("customers")
+}
+
+model Invoice {
+  id           Int          @id @default(autoincrement())
+  invoiceNumber String      @unique
+  status       InvoiceStatus @default(DRAFT)
+  customerId   Int?
+  userId       Int
+  items        InvoiceItem[]
+  total        Float       @default(0)
+  taxableTotal Float       @default(0)
+  taxTotal     Float       @default(0)
+  discount     Float       @default(0)
+  paymentMethod PaymentMethod @default(CASH)
+  paymentStatus PaymentStatus @default(PENDING)
+  changeAmount Float       @default(0)
+  paidAt       DateTime?
+  notes        String?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  @@index([invoiceNumber])
+  @@index([status])
+  @@map("invoices")
+}
+
+model InvoiceItem {
+  id           Int      @id @default(autoincrement())
+  invoiceId    Int
+  productId    Int
+  quantity     Float
+  unitPrice    Float
+  discount     Float    @default(0)
+  taxRate      Float    @default(0)
+  total        Float
+  createdAt    DateTime @default(now())
+
+  @@map("invoice_items")
+}
+
+model Purchase {
+  id           Int        @id @default(autoincrement())
+  supplierId   Int
+  invoiceNumber String?
+  status       PurchaseStatus @default(PENDING)
+  items        PurchaseItem[]
+  total        Float    @default(0)
+  paidAmount   Float    @default(0)
+  notes        String?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@map("purchases")
+}
+
+model PurchaseItem {
+  id           Int      @id @default(autoincrement())
+  purchaseId   Int
+  productId    Int
+  quantity     Float
+  unitPrice    Float
+  total        Float
+  expiryDate   DateTime?
+  batchNumber  String?
+  createdAt    DateTime @default(now())
+
+  @@map("purchase_items")
+}
+
+model Shift {
+  id           Int        @id @default(autoincrement())
+  userId       Int
+  openedAt     DateTime   @default(now())
+  closedAt     DateTime?
+  openingFloat Float      @default(0)
+  cashIn       Float      @default(0)
+  cashOut      Float      @default(0)
+  expectedCash Float      @default(0)
+  countedCash  Float      @default(0)
+  notes        String?
+  entries      ShiftEntry[]
+
+  @@map("shifts")
+}
+
+model ShiftEntry {
+  id           Int      @id @default(autoincrement())
+  shiftId      Int
+  type         EntryType
+  amount       Float
+  notes        String?
+  createdAt    DateTime @default(now())
+
+  @@map("shift_entries")
+}
+
+model StockMovement {
+  id           Int        @id @default(autoincrement())
+  productId    Int
+  type         MovementType
+  quantity     Float
+  referenceId  Int?       // invoiceId, purchaseId, etc.
+  referenceType String?  // "invoice", "purchase", "adjustment", "stock_take"
+  userId       Int?
+  reason       String?
+  createdAt    DateTime   @default(now())
+
+  @@index([productId])
+  @@index([type])
+  @@map("stock_movements")
+}
+
+model AuditLog {
+  id           Int      @id @default(autoincrement())
+  userId       Int?
+  action       String
+  entity       String
+  entityId     Int?
+  details      String?
+  ipAddress    String?
+  userAgent    String?
+  createdAt    DateTime @default(now())
+
+  @@map("audit_logs")
+}
+
+enum UserRole {
+  OWNER
+  MANAGER
+  CASHIER
+}
+
+enum InvoiceStatus {
+  DRAFT
+  PAID
+  VOIDED
+  RETURNED
+}
+
+enum PaymentMethod {
+  CASH
+  CARD
+  BANK_TRANSFER
+  MOBILE_TRANSFER
+  CREDIT
+  CASH_IN
+  CASH_OUT
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  PARTIAL
+}
+
+enum PurchaseStatus {
+  PENDING
+  RECEIVED
+  CANCELLED
+}
+
+enum EntryType {
+  CASH_IN
+  CASH_OUT
+}
+
+enum MovementType {
+  IN
+  OUT
+  ADJUSTMENT_IN
+  ADJUSTMENT_OUT
+}
+
+enum AdjustmentReason {
+  DAMAGE
+  EXPIRY
+  THEFT
+  COUNT_CORRECTION
+  OTHER
+}
